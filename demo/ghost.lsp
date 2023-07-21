@@ -4,7 +4,7 @@
   :step (func ()
     (if player (do
       (let dist (distance player super))
-      (if (< 8 dist 64)
+      (if (and (< 8 dist) (< dist 64))
         (super':move
           (/ (- (player':get-x) (super':get-x)) dist 10)
           (/ (- (player':get-y) (super':get-y)) dist 10)

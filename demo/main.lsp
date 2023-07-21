@@ -18,10 +18,7 @@
   (= level (tilemap "maps/level.lsp"))
   (= clouds (tilemap "maps/clouds.lsp"))
   ; reset actor groups
-  (= enemies nil)
-  (= pickups nil)
-  (= player nil)
-  (= particles nil)
+  (= (enemies pickups player particles) nil)
   ; spawn actors
   (do
     (let spawn (tilemap "maps/spawn.lsp"))
@@ -48,7 +45,7 @@
 
 (= solid? (func (x y)
   (let t (tile level (// x 8) (// y 8)))
-  (or (not t) (< -1 t 15) (< x 0))
+  (or (not t) (and (< -1 t) (< t 15)) (< x 0))
 ))
 
 (= draw-map (func (px py map)
@@ -64,15 +61,16 @@
     (e':step)
     (if (e':alive?) (= res (cons e res)))
   ))
-  (eval (list '= group 'res))
+  (apply = (list group res))
 ))
 
 (= message (func (msg)
-  (let w (+ 2 (* (width font.bmp) (strlen msg))))
-  (let h (* (width font.bmp) 3))
-  (let x (* 0.5 (- WIDTH  w)))
-  (let y (* 0.5 (- HEIGHT h)))
-  (let c (camera))
+  (let w (+ 2 (* (width font.bmp) (strlen msg)))
+       h (* (width font.bmp) 3)
+       x (* 0.5 (- WIDTH  w))
+       y (* 0.5 (- HEIGHT h))
+       c (camera)
+  )
   (camera 0 0)
   (fill 15 x y w h)
   (fill 0 (+ x 1) (+ y 1) (- w 2) (- h 2))

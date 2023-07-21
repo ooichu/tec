@@ -55,11 +55,11 @@ static struct { int x0, y0, x1, y1; } clip;
 static uint64_t time_step;
 static bool show_fps = false;
 
-/* fixed palette and font sheet */
+/* fixed palette */
 static uint32_t colors[256];
 static int num_colors;
 
-/* circle buffer of sources */
+/* circle buffer of sound sources */
 static struct { Sound *sound; uint32_t position; } *sources;
 static int max_sources = 64, num_sources, next_source; 
 
@@ -762,6 +762,11 @@ int main(int argc, char *argv[]) {
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) elis_error(S, SDL_GetError());
   window = SDL_CreateWindow(get_string("TITLE"), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, viewport.w, viewport.h, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
   if (!window) elis_error(S, SDL_GetError());
+  SDL_Surface *icon = SDL_LoadBMP(get_string("ICON"));
+  if (icon) { 
+    SDL_SetWindowIcon(window, icon);
+    SDL_FreeSurface(icon);
+  }
   SDL_SetWindowMinimumSize(window, width, height);
   SDL_ShowCursor(SDL_DISABLE);
   screen = calloc(height, width);
@@ -870,7 +875,6 @@ int main(int argc, char *argv[]) {
   /* start main loop */
   uint64_t prev_time = SDL_GetPerformanceCounter();
   for (;;) {
-    SDL_Rect *rect = &viewport;
     /* process events */
     wheel = 0;
     for (SDL_Event e; SDL_PollEvent(&e); ) {
@@ -891,8 +895,6 @@ int main(int argc, char *argv[]) {
             viewport.h = height * scale;
             viewport.x = (w - viewport.w) / 2;
             viewport.y = (h - viewport.h) / 2;
-            /* redraw whole screen */
-            rect = &SDL_GetWindowSurface(window)->clip_rect;
           }
           break;
         }
@@ -914,7 +916,7 @@ int main(int argc, char *argv[]) {
         memcpy(window_row + i, window_row, pitch); 
       }
     }
-    SDL_UpdateWindowSurfaceRects(window, rect, 1);
+    SDL_UpdateWindowSurface(window);
     /* clip framerate */
     uint64_t cur_time = SDL_GetPerformanceCounter(), end_time = prev_time + time_step, start_time = prev_time;
     if (end_time > cur_time) {

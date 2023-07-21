@@ -1,7 +1,8 @@
 (= TITLE  "Jumper"
+   ICON   "images/icon.bmp"
    WIDTH  128
    HEIGHT 128
-   SCALE  4
+   SCALE  1
    FPS    50
 )
 

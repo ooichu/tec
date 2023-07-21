@@ -61,7 +61,8 @@
   )
  
   init (func (x y)
-    (= super (Actor x y 8))
-    (= player self)
+    (= super (Actor x y 8)
+       player self
+    )
   )
 )) 

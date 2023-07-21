@@ -37,8 +37,9 @@
   :get-dy (func () :dy)
 
   :move (func (x y)
-    (= :dx (+ :dx x))
-    (= :dy (+ :dy y))
+    (= :dx (+ :dx x)
+       :dy (+ :dy y)
+    )
   )
   
   :on-ground nil

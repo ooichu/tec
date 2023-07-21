@@ -13,7 +13,8 @@
   )
 
   init (func (self x y size float)
-    (= super (Actor x y size float))
-    (= enemies (cons self enemies))
+    (= super (Actor x y size float)
+       enemies (cons self enemies)
+    )
   )
 ))
