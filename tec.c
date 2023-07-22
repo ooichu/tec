@@ -895,6 +895,10 @@ int main(int argc, char *argv[]) {
             viewport.h = height * scale;
             viewport.x = (w - viewport.w) / 2;
             viewport.y = (h - viewport.h) / 2;
+            /* clear window screen */
+            SDL_Surface *surface = SDL_GetWindowSurface(window);
+            memset(surface->pixels, 0, surface->pitch * surface->h);
+            SDL_UpdateWindowSurface(window);
           }
           break;
         }
@@ -916,7 +920,7 @@ int main(int argc, char *argv[]) {
         memcpy(window_row + i, window_row, pitch); 
       }
     }
-    SDL_UpdateWindowSurface(window);
+    SDL_UpdateWindowSurfaceRects(window, &viewport, 1);
     /* clip framerate */
     uint64_t cur_time = SDL_GetPerformanceCounter(), end_time = prev_time + time_step, start_time = prev_time;
     if (end_time > cur_time) {
