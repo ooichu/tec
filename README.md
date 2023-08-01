@@ -8,8 +8,8 @@ Framework for making tiny games with [elis](https://github.com/ooichu/elis) lang
 Getting started
 ---------------
 
-Compile `tec.c` with `build.sh` (SDL2 required) and run the resulting executable from the game 
-directory. For example, execute `(cd demo; ../tec)` to run demo.
+Compile `tec.c` with `build.sh` (SDL2 required) and run the resulting executable with path to game
+script. For example, execute `(cd demo; ../tec main.elis)` to run demo.
 
 Configuration
 -------------
@@ -60,8 +60,8 @@ The graphics system only allows you to draw images and filled rectangles.
 
 Only BMP format images are supported. All images automatically converted to `COLORS` palette.
 Images to be used as spritesheets must have a resolution `WxH`, where `W` — width and height of
-sprite and `H = W * number of sprites`. If an image is used as font, then it must contain 94
-sprites (for 33-126 ASCII characters). Examples of images can be found in `demo/images/`.
+sprite and `H = W * number of sprites`. If an image is used as font, then it must contain 95
+sprites (for 32-126 ASCII characters). Examples of images can be found in `demo/images/`.
 
 A tilemap is a matrix of sprite indexes. A tilemap is specified by a file that must contain only
 numbers separated by spaces. The first two numbers are the width and height of the map, and the

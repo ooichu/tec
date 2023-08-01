@@ -254,7 +254,7 @@ static elis_Object *f_draw(elis_State *S, elis_Object *args) {
       break;
     case ELIS_STRING:
       for (const char *str = elis_to_string(S, args); *str; ++str, x += surface->w) {
-        if (*str > 32 && *str < 127) draw(surface, x, y, *str - 33);
+        if (*str >= ' ' && *str <= '~') draw(surface, x, y, *str - 32);
       }
       break;
     case ELIS_USERDATA: {
@@ -680,11 +680,11 @@ static struct { const char *name; elis_CFunction func; } functions[] = {
 
 static void cleanup(void) {
   try_call("quit");
-  if (device) SDL_CloseAudioDevice(device);
-  if (window) SDL_DestroyWindow(window);
-  if (screen) free(screen);
-  if (sources) free(sources);
-  if (S) elis_free(S);
+  SDL_CloseAudioDevice(device);
+  SDL_DestroyWindow(window);
+  free(screen);
+  free(sources);
+  elis_free(S);
   SDL_Quit();  
 }
 
@@ -718,8 +718,6 @@ static void audio_callback(void *udata, uint8_t *stream, int len) {
 }
 
 int main(int argc, char *argv[]) {
-  (void) argc;
-  (void) argv;
   atexit(cleanup);
   srand(time(NULL));
   
@@ -734,7 +732,8 @@ int main(int argc, char *argv[]) {
     elis_set(S, elis_symbol(S, functions[i].name), elis_cfunction(S, functions[i].func));
     elis_restore_gc(S, 0);
   }
-  load(S, "main.lsp");
+  if (argc < 2) elis_error(S, "script name is missing");
+  load(S, argv[1]);
   elis_on_error(S, config_error);
   
   /*
