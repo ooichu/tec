@@ -14,10 +14,9 @@ script. For example, execute `(cd demo; ../tec main.elis)` to run demo.
 Configuration
 -------------
 
-When `tec` is started, the `main.lsp` script is executed, which should contain the game code. Other
-scripts can be loaded in `main.lsp` using the `(load "script.lsp")` function.
-
-Once `main.lsp` is loaded, the following **constants** are expected to be defined in global scope:
+When `tec` is started, main game script is executed. Other scripts can be loaded from main using
+the `(load "script.elis")` function. Once is loaded, the following **constants** are expected to be
+defined in global scope:
 
 | Constant |                                      Value                                      |
 |----------|---------------------------------------------------------------------------------|
@@ -26,7 +25,8 @@ Once `main.lsp` is loaded, the following **constants** are expected to be define
 | `WIDTH`  | window width                                                                    |
 | `HEIGHT` | window height                                                                   |
 | `SCALE`  | how many times window should be stretched                                       |
-| `DEBUG`  | print FPS to `stderr`?                                                          |
+| `FPS`    | target FPS                                                                      |
+| `DEBUG`  | print current FPS (not a constant) to `stderr`?                                 |
 | `COLORS` | list of available colors, e.g. `((255 0 255) (10 128 80) (228 113 84))`         |
 | `IMAGES` | list of available images, should contain triplets: variable, filename, colorkey |
 | `SOUNDS` | list of available sounds, should contain triplets: variable, filename, volume   |
@@ -39,7 +39,7 @@ The game loop consists of three stages:
 | `step`   | every frame                        |
 | `quit`   | before closing the application     |
 
-Example of configuration can be found in `demo/config.lsp` and `demo/main.lsp`.
+Example of configuration can be found in `demo/config.elis` and `demo/main.elis`.
 
 Graphics
 --------
