@@ -39,6 +39,9 @@ static elis_State *S;
 
 /* window */
 static SDL_Window *window;
+static SDL_Renderer *renderer;
+static SDL_Texture *texture;
+static uint32_t *pixels; /* raw RGBA pixels */
 static SDL_Rect viewport;
 
 /* audio */
@@ -75,7 +78,7 @@ static const char *config_info;
 static void config_error(elis_State *S, const char *msg, elis_Object *calls) {
   (void) S;
   (void) calls;
-  fprintf(stderr, "error: %s (after getting `%s`)", msg, config_info);
+  fprintf(stderr, "error: %s (after getting `%s`)\n", msg, config_info);
   exit(EXIT_FAILURE);
 } 
 
@@ -208,6 +211,47 @@ static elis_Object *f_each(elis_State *S, elis_Object *args) {
     }
   }
   return elis_bool(S, false);
+}
+
+static elis_Object *f_type(elis_State *S, elis_Object *args) {
+  return elis_string(S, elis_typenames[elis_type(S, elis_next_arg(S, &args))]);
+}
+
+#define SORT_MAX_RECURSION 16
+
+static struct { elis_State *S; elis_Object *func; int gc; } sort_stack[SORT_MAX_RECURSION],
+                                                            *sort_args = sort_stack + SORT_MAX_RECURSION;
+
+static int compare(const void *a, const void *b) {
+  elis_State *S = sort_args->S;
+  elis_Object *args = elis_list(S, (elis_Object *[]) { *(elis_Object **) a, *(elis_Object **) b }, 2);
+  int ret = elis_to_number(S, elis_apply(S, sort_args->func, args));
+  elis_restore_gc(S, sort_args->gc);
+  return ret;
+}
+
+static elis_Object *f_sort(elis_State *S, elis_Object *args) {
+  if (sort_args-- == sort_stack) elis_error(S, "too deep recursion on sorting");
+  /* copy list to plain array */
+  size_t cap = 64, len = 0;
+  elis_Object **arr = malloc(cap * sizeof(*arr)), *lst = elis_next_arg(S, &args);
+  while (!elis_nil(S, lst)) {
+    if (len == cap) {
+      cap <<= 1;
+      arr = realloc(arr, cap * sizeof(*arr));
+    }
+    arr[len++] = elis_next_arg(S, &lst);
+  }
+  /* sort using `qsort()` */
+  sort_args->S = S;
+  sort_args->func = elis_next_arg(S, &args);
+  sort_args->gc = elis_save_gc(S);
+  qsort(arr, len, sizeof(*arr), compare);
+  /* convert sorted array back to list */
+  lst = elis_list(S, arr, len);
+  free(arr);
+  ++sort_args;
+  return lst;
 }
 
 static elis_Object *f_random(elis_State *S, elis_Object *args) {
@@ -630,6 +674,8 @@ static struct { const char *name; elis_CFunction func; } functions[] = {
   { "exit",    f_exit    },
   { "time",    f_time    },
   { "each",    f_each    },
+  { "type",    f_type    },
+  { "sort",    f_sort    },
   { "random",  f_random  },
   /*      graphics      */
   { "fill",    f_fill    },
@@ -680,10 +726,16 @@ static struct { const char *name; elis_CFunction func; } functions[] = {
 
 static void cleanup(void) {
   try_call("quit");
+  /* stop audio */
   SDL_CloseAudioDevice(device);
+  free(sources);
+  /* free graphics stuff */
+  SDL_DestroyTexture(texture);
+  SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow(window);
   free(screen);
-  free(sources);
+  free(pixels);
+  /* free elis state and SDL */
   elis_free(S);
   SDL_Quit();  
 }
@@ -766,9 +818,13 @@ int main(int argc, char *argv[]) {
     SDL_SetWindowIcon(window, icon);
     SDL_FreeSurface(icon);
   }
-  SDL_SetWindowMinimumSize(window, width, height);
   SDL_ShowCursor(SDL_DISABLE);
-  screen = calloc(height, width);
+  renderer = SDL_CreateRenderer(window, -1, 0);
+  if (!renderer) elis_error(S, SDL_GetError());
+  texture = SDL_CreateTexture(renderer, SDL_GetWindowPixelFormat(window), SDL_TEXTUREACCESS_STREAMING, width, height);
+  if (!texture) elis_error(S, SDL_GetError());
+  screen = malloc(width * height);
+  pixels = malloc(width * height * sizeof(uint32_t));
 
   /*
    * Init audio
@@ -889,15 +945,14 @@ int main(int argc, char *argv[]) {
             /* find smallest scale */
             int scale_w = w / width, scale_h = h / height;
             scale = scale_w < scale_h ? scale_w : scale_h;
+            if (!scale) scale = 1;
             /* recalculate letterbox */
             viewport.w = width * scale;
             viewport.h = height * scale;
             viewport.x = (w - viewport.w) / 2;
             viewport.y = (h - viewport.h) / 2;
             /* clear window screen */
-            SDL_Surface *surface = SDL_GetWindowSurface(window);
-            memset(surface->pixels, 0, surface->pitch * surface->h);
-            SDL_UpdateWindowSurface(window);
+            SDL_RenderClear(renderer);
           }
           break;
         }
@@ -905,21 +960,10 @@ int main(int argc, char *argv[]) {
     /* call `step` handler */
     call(step);
     /* draw scaled virtual framebuffer on window (how make it faster?) */
-    SDL_Surface *surface = SDL_GetWindowSurface(window);
-    for (int y = 0, pitch = viewport.w * sizeof(uint32_t); y < height; ++y) {
-      uint8_t *screen_row = screen + y * width;
-      uint32_t *window_row = (uint32_t*) surface->pixels + viewport.x + (viewport.y + y * scale) * surface->w;
-      /* scale first line */
-      for (int x = 0; x < width; ++x) {
-        uint32_t col = colors[screen_row[x]];
-        for (int i = x * scale, max_i = i + scale; i < max_i; ++i) window_row[i] = col;
-      }
-      /* copy scaled line */
-      for (int i = surface->w; i < surface->w * scale; i += surface->w) {
-        memcpy(window_row + i, window_row, pitch); 
-      }
-    }
-    SDL_UpdateWindowSurfaceRects(window, &viewport, 1);
+    for (int i = 0; i < width * height; ++i) pixels[i] = colors[screen[i]];
+    SDL_UpdateTexture(texture, NULL, pixels, sizeof(uint32_t) * width);
+    SDL_RenderCopy(renderer, texture, NULL, &viewport);
+    SDL_RenderPresent(renderer);
     /* clip framerate */
     uint64_t cur_time = SDL_GetPerformanceCounter(), end_time = prev_time + time_step, start_time = prev_time;
     if (end_time > cur_time) {

@@ -106,6 +106,8 @@ Miscellaneous
 | `(time)`             | get current time from app start (in seconds)           |
 | `(each list func)`   | apply `func` to each element of `list`                 |
 | `(each number func)` | apply `func` to each integer number from 0 to `number` |
+| `(type any)`         | get type name of `any` as string                       |
+| `(sort list func)`   | sort `list` using `func` as compare function           |
 | `(random [n [m]])`   | generate random number                                 |
 
 Math

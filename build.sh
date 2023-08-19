@@ -1,3 +1,5 @@
 #!/bin/sh
-gcc tec.c elis/elis.c -std=c99 `sdl2-config --cflags --libs` -lm -o tec -O3 -Wall -Wextra -pedantic -DELIS_PAGE_SIZE=16384
+ELIS="elis/elis.c -DELIS_PAGE_SIZE=16384 -DELIS_STACK_SIZE=1024"
+SDL2=`sdl2-config --libs --cflags`
+gcc tec.c $ELIS $SDL2 -lm -o tec -O3 -Wall -Wextra -pedantic -std=c99 
 strip tec
