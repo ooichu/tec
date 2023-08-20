@@ -248,7 +248,13 @@ static elis_Object *f_sort(elis_State *S, elis_Object *args) {
   sort_args->gc = elis_save_gc(S);
   qsort(arr, len, sizeof(*arr), compare);
   /* convert sorted array back to list */
-  lst = elis_list(S, arr, len);
+  lst = elis_bool(S, false);
+  int gc = elis_save_gc(S);
+  while (len) {
+    lst = elis_cons(S, arr[--len], lst);
+    elis_restore_gc(S, gc);
+    elis_push_gc(S, lst);
+  }
   free(arr);
   ++sort_args;
   return lst;
