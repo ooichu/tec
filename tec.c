@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <SDL2/SDL.h>
+#include <inttypes.h>
 #include "elis/elis.h"
 
 /*
@@ -979,7 +980,7 @@ int main(int argc, char *argv[]) {
       prev_time = cur_time;
     }
     /* print fps, if required */
-    if (show_fps) fprintf(stderr, "\r[%lu FPS] ", SDL_GetPerformanceFrequency() / (SDL_GetPerformanceCounter() - start_time));
+    if (show_fps) fprintf(stderr, "\r[%" PRIu64 " FPS] ", SDL_GetPerformanceFrequency() / (SDL_GetPerformanceCounter() - start_time));
   }
 
   return EXIT_SUCCESS;
