@@ -274,8 +274,7 @@ static elis_Object *f_random(elis_State *S, elis_Object *args) {
 } 
 
 static inline void draw(SDL_Surface *surface, int x, int y, int s) {
-  int w = surface->w, h = w, sx = 0, sy = s * w;
-  sy = (sy < 0 ? surface->h + sy : sy) % surface->h;
+  int w = surface->w, h = w, sx = 0, sy = (s * w % surface->h + surface->h) % surface->h;
   /* clip sprite */
   if (x + w >= clip.x1) w = clip.x1 - x;
   if (x < clip.x0) x -= clip.x0, sx -= x, w += x, x = clip.x0;
@@ -396,8 +395,8 @@ static elis_Object *f_fill(elis_State *S, elis_Object *args) {
 
 static elis_Object *f_camera(elis_State *S, elis_Object *args) {
   if (elis_nil(S, args)) return elis_cons(S, elis_number(S, camera.x), elis_number(S, camera.y));
-  camera.x = elis_to_number(S, elis_next_arg(S, &args));
-  camera.y = elis_to_number(S, elis_next_arg(S, &args));
+  camera.x = floor(elis_to_number(S, elis_next_arg(S, &args)));
+  camera.y = floor(elis_to_number(S, elis_next_arg(S, &args)));
   return elis_bool(S, false);
 }
 
