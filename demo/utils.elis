@@ -1,4 +1,3 @@
-; unsigned modulo
 (= mod (func (x y)
   (= x (% x y))
   (if (< x 0) (+ y x) x)
@@ -10,14 +9,10 @@
 
 (= square (func (x) (* x x)))
 
-; `class` macro
 (= class (macro body
   (list 'func 'args
-    ; declare `self` and `super`
     '(let self nil super nil)
-    ; put class definition
     (cons 'let body)
-    ; define `self` and call constructor
     '(do
       (= self (func (method . args)
         (let local (eval method))
@@ -29,5 +24,12 @@
       (apply init args)
       self
     )
+  )
+))
+
+(= each (func (lst func)
+  (while lst
+    (func (car lst))
+    (= lst (cdr lst))
   )
 ))

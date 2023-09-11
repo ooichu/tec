@@ -21,15 +21,15 @@ defined in global scope:
 | Constant |                                      Value                                      |
 |----------|---------------------------------------------------------------------------------|
 | `TITLE`  | window name                                                                     |
-| `ICON`   | window icon                                                                     |
 | `WIDTH`  | window width                                                                    |
 | `HEIGHT` | window height                                                                   |
 | `SCALE`  | how many times window should be stretched                                       |
 | `FPS`    | target FPS                                                                      |
-| `DEBUG`  | print current FPS (not a constant) to `stderr`?                                 |
-| `COLORS` | list of available colors, e.g. `((255 0 255) (10 128 80) (228 113 84))`         |
+| `COLORS` | list of available colors, should contain triplets: R, G, B (in range 0-255)     |
 | `IMAGES` | list of available images, should contain triplets: variable, filename, colorkey |
 | `SOUNDS` | list of available sounds, should contain triplets: variable, filename, volume   |
+
+After initialization, all configuration constants are set to nil.
 
 The game loop consists of three stages:
 
@@ -37,7 +37,6 @@ The game loop consists of three stages:
 |----------|------------------------------------|
 | `init`   | after the framework initialization |
 | `step`   | every frame                        |
-| `quit`   | before closing the application     |
 
 Example of configuration can be found in `demo/config.elis` and `demo/main.elis`.
 
@@ -48,15 +47,19 @@ The graphics system only allows you to draw images and filled rectangles.
 
 |             Function             |                          Purpose                          |
 |----------------------------------|-----------------------------------------------------------|
-| `(fill col [x y w h])`           | fill whole screen or rectangle                            |
-| `(peek x y)`                     | peek screen pixel                                         |
-| `(draw x y img {spr, str, map})` | draw sprite, string or map                                |
+| `(clear col [map])`              | clear screen or map                                       |
+| `(fill col x y w h)`             | fill screen rectangle                                     |
+| `(fill col x y map)`             | set tile on map                                           |
+| `(peek x y [map])`               | peek screen pixel or map tile                             |
+| `(draw x y img sprite-num)`      | draw sprite, `img` is spritesheet image                   |
+| `(draw x y img string)`          | draw string, `img` is font                                |
+| `(draw x y img map)`             | draw tilemap, `img` is tilesheet                          |
 | `(clip [x y w h])`               | clip screen (if any arguments passed) or return clip rect |
-| `(camera [x y])`                 | set camera (if any arguments passed) or return camera     |
-| `(width [img, map])`             | get width of screen, image or map                         |
-| `(height [img, map])`            | get height of screen, image or map                        |
+| `(camera [pos])`                 | get camera position or set camera to `pos = (x . y)`      |
+| `(width [img \| map])`           | get width of screen, image or map                         |
+| `(height [img \| map])`          | get height of screen, image or map                        |
 | `(tilemap filename)`             | create new tilemap from file                              |
-| `(tile map x y [tile])`          | get/set tile on map                                       |
+| `(tilemap w h)`                  | create blank tilemap                                      |
 
 Only BMP format images are supported. All images automatically converted to `COLORS` palette.
 Images to be used as spritesheets must have a resolution `WxH`, where `W` — width and height of
@@ -72,11 +75,14 @@ Audio
 
 The audio system in quite simple. It supports only sounds and music (looping sounds).
 
-|       Function       |                           Purpose                            |
-|----------------------|--------------------------------------------------------------|
-| `(play sound loop?)` | play `sound`, if `loop?` isn't `nil` — play/restart music    |
-| `(stop [sound])`     | stop all sounds and music, or stop music with `sound` source |
-| `(mute yes?)`        | global mute/unmute                                           |
+|       Function        |                           Purpose                            |
+|-----------------------|--------------------------------------------------------------|
+| `(play sound music?)` | play `sound`, if `music?` isn't `nil` -- start music         |
+| `(stop music)`        | stop music                                                   |
+| `(pause music)`       | pause music                                                  |
+| `(play)`              | play all paused sounds                                       |
+| `(stop)`              | stop all sounds                                              |
+| `(pause)`             | pause all sounds                                             |
 
 Only WAV sounds are supported. Only one music using a certain sound, the sound can play at the same
 time.  Examples of using the audio system can be found in the `demo/`.
@@ -101,11 +107,9 @@ Miscellaneous
 
 |       Function       |                        Purpose                         |
 |----------------------|--------------------------------------------------------|
-| `(load filename)`    | load script                                            |
 | `(exit)`             | close app                                              |
 | `(time)`             | get current time from app start (in seconds)           |
-| `(each list func)`   | apply `func` to each element of `list`                 |
-| `(each number func)` | apply `func` to each integer number from 0 to `number` |
+| `(load filename)`    | load script                                            |
 | `(type any)`         | get type name of `any` as string                       |
 | `(sort list func)`   | sort `list` using `func` as compare function           |
 | `(random [n [m]])`   | generate random number                                 |
@@ -115,9 +119,6 @@ Math
 
 |   Function    |                Purpose                |
 |---------------|---------------------------------------|
-| `(min ...)`   | get smallest number from arguments    |
-| `(max ...)`   | get biggest number from arguments     |
-| `(sign x)`    | get sign of number (zero is positive) |
 | `(abs x)`     | get absolute value                    |
 | `(sin x)`     | sine function                         |
 | `(cos x)`     | cosine function                       |

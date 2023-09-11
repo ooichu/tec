@@ -21,9 +21,10 @@
          y (super':get-y)
     )
 
-    (camera (- 64 (clamp (- x 4) 64 (- (* 128 8) 64)))
-            (- 64 (clamp (- y 4) 64 (- (*  24 8) 64)))
-    )
+    (camera (cons
+      (- 64 (clamp (- x 4) 64 (- (* 128 8) 64)))
+      (- 64 (clamp (- y 4) 64 (- (*  24 8) 64)))
+    ))
 
     (if (super':on-ground?)
       (do

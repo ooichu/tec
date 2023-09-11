@@ -12,13 +12,11 @@
 (load "gem.elis")
 
 (= init (func ()
-  ; restart music
   (play music.wav t)  
-  ; load tile maps
-  (= level (tilemap "maps/level.dat"))
-  (= clouds (tilemap "maps/clouds.dat"))
-  ; reset actor groups
-  (= (enemies pickups player particles) nil)
+  (= level (tilemap "maps/level.dat")
+     clouds (tilemap "maps/clouds.dat")
+     (enemies pickups player particles) nil
+  )
   ; spawn actors
   (do
     (let spawn (tilemap "maps/spawn.dat"))
@@ -26,7 +24,7 @@
     (while (< y (height spawn))
       (let x 0)
       (while (< x (width spawn))
-        (let id (tile spawn x y)
+        (let id (peek x y spawn)
              px (* x (width tiles.bmp))
              py (* y (width tiles.bmp))
         )
@@ -44,15 +42,15 @@
 ))
 
 (= solid? (func (x y)
-  (let t (tile level (// x 8) (// y 8)))
+  (let t (peek (// x 8) (// y 8) level))
   (or (not t) (and (< -1 t) (< t 15)) (< x 0))
 ))
 
 (= draw-map (func (px py map)
   (let c (camera))
-  (camera 0 0)
+  (camera '(0 . 0))
   (draw (* px (car c)) (* py (cdr c)) tiles.bmp map)
-  (camera (car c) (cdr c))
+  (camera c)
 ))
 
 (= group-step (func (group)
@@ -67,19 +65,19 @@
 (= message (func (msg)
   (let w (+ 2 (* (width font.bmp) (strlen msg)))
        h (* (width font.bmp) 3)
-       x (* 0.5 (- WIDTH  w))
-       y (* 0.5 (- HEIGHT h))
+       x (* 0.5 (- (width ) w))
+       y (* 0.5 (- (height) h))
        c (camera)
   )
-  (camera 0 0)
+  (camera '(0 . 0))
   (fill 15 x y w h)
   (fill 0 (+ x 1) (+ y 1) (- w 2) (- h 2))
   (draw (+ x 1) (+ y (width font.bmp)) font.bmp msg)
-  (camera (car c) (cdr c))
+  (camera c)
 ))
 
 (= step (func ()
-  (fill 13)
+  (clear 13)
   (draw-map 0.80 0.80 clouds)
   (draw-map 1.00 1.00 level)
   (group-step 'enemies)

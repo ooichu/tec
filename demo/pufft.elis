@@ -10,7 +10,9 @@
 ))
 
 (= make-puffts (func (x y n)
-  (each n (func (i)
+  (let i 0)
+  (while (< i n)
     (Pufft x y (* i (/ (* 2 PI) n)))
-  ))
+    (= i (+ i 1))
+  )
 ))

@@ -18,14 +18,13 @@
  */
 
 #include <time.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <tgmath.h>
 #include <stdbool.h>
 #include <SDL2/SDL.h>
-#include <inttypes.h>
 #include "elis/elis.h"
 
 /*
@@ -35,8 +34,9 @@
 typedef struct { int width, height, tiles[]; } Tilemap;
 typedef struct { uint32_t length; int volume; uint8_t *buffer; } Sound;
 
-/* elis state */
 static elis_State *S;
+static int wheel;
+static uint64_t time_step;
 
 /* window */
 static SDL_Window *window;
@@ -55,10 +55,6 @@ static int width, height, scale;
 static struct { elis_Number x, y; } camera;
 static struct { int x0, y0, x1, y1; } clip;
 
-/* time step */
-static uint64_t time_step;
-static bool show_fps = false;
-
 /* fixed palette */
 static uint32_t colors[256];
 static int num_colors;
@@ -66,73 +62,6 @@ static int num_colors;
 /* circle buffer of sound sources */
 static struct { Sound *sound; uint32_t position; } *sources;
 static int max_sources = 64, num_sources, next_source; 
-
-/* controls */
-static int wheel = 0;
-
-/*
- * Elis API utils
- */
-
-static const char *config_info;
-
-static void config_error(elis_State *S, const char *msg, elis_Object *calls) {
-  (void) S;
-  (void) calls;
-  fprintf(stderr, "error: %s (after getting `%s`)\n", msg, config_info);
-  exit(EXIT_FAILURE);
-} 
-
-static elis_Object *do_nothing(elis_State *S, elis_Object *args) {
-  (void) S;
-  (void) args;
-  return elis_bool(S, false);
-}
-
-static elis_Object *get_any(const char *name) {
-  config_info = name;
-  /* get symbol's value and detach it from */
-  elis_Object *sym = elis_symbol(S, name);
-  elis_Object *val = elis_eval(S, sym);
-  elis_set(S, sym, elis_bool(S, false));
-  return val;
-}
-
-static elis_Number get_number(const char *name, elis_Number alt) {
-  elis_Object *obj = get_any(name);
-  return elis_nil(S, obj) ? alt : elis_to_number(S, obj);
-}
-
-static const char *get_string(const char *name) {
-  elis_Object *obj = get_any(name);
-  return elis_nil(S, obj) ? NULL : elis_to_string(S, obj);
-}
-
-static elis_Object *get_handler(const char *name) {
-  elis_Object *sym = elis_symbol(S, name);
-  /* if handler not defined, set empty handler */
-  if (elis_nil(S, elis_eval(S, sym))) {
-    elis_set(S, sym, elis_cfunction(S, do_nothing)); 
-  }
-  return sym;
-}
-
-static void call(elis_Object *sym) {
-  elis_restore_gc(S, 0);
-  elis_apply(S, sym, elis_bool(S, false));
-}
-
-static void try_call(const char *name) {
-  elis_Object *sym = elis_symbol(S, name);
-  if (!elis_nil(S, elis_eval(S, sym))) call(sym);
-}
-
-static inline void *to_userdata(elis_State *S, elis_Object *obj, elis_Handlers *type) {
-  elis_Handlers *hdls = NULL;
-  void *udata = elis_to_userdata(S, obj, &hdls);
-  if (hdls != type) elis_error(S, "unexpected userdata type");
-  return udata;
-}
 
 /*
  * Userdata objects
@@ -155,13 +84,30 @@ static elis_Object *free_tilemap(elis_State *S, elis_Object *obj) {
   return NULL; 
 }
 
-static elis_Handlers image_handlers = { .free = free_image };
-static elis_Handlers sound_handlers = { .free = free_sound };
+static elis_Handlers image_handlers   = { .free = free_image   };
+static elis_Handlers sound_handlers   = { .free = free_sound   };
 static elis_Handlers tilemap_handlers = { .free = free_tilemap };
 
+static void *to_userdata(elis_State *S, elis_Object *obj, elis_Handlers *type) {
+  elis_Handlers *hdls = NULL;
+  void *udata = elis_to_userdata(S, obj, &hdls);
+  return hdls == type ? udata : NULL;
+}
+
 /*
- * Foreign functions
+ * API: utils
  */
+
+static elis_Object *f_exit(elis_State *S, elis_Object *args) {
+  (void) S;
+  (void) args;
+  exit(EXIT_SUCCESS);
+}
+
+static elis_Object *f_time(elis_State *S, elis_Object *args) {
+  (void) args;
+  return elis_number(S, SDL_GetTicks() / 1000.0);
+}
 
 static elis_Object *load(elis_State *S, const char *filename) {
   FILE *fp = fopen(filename, "r");
@@ -181,37 +127,6 @@ static elis_Object *load(elis_State *S, const char *filename) {
 
 static elis_Object *f_load(elis_State *S, elis_Object *args) {
   return load(S, elis_to_string(S, elis_next_arg(S, &args)));
-}
-
-static elis_Object *f_exit(elis_State *S, elis_Object *args) {
-  (void) S;
-  (void) args;
-  exit(EXIT_SUCCESS);
-}
-
-static elis_Object *f_time(elis_State *S, elis_Object *args) {
-  (void) args;
-  return elis_number(S, SDL_GetTicks() / 1000.0);
-}
-
-static elis_Object *f_each(elis_State *S, elis_Object *args) {
-  elis_Object *obj = elis_next_arg(S, &args), *func = elis_next_arg(S, &args);
-  args = elis_cons(S, elis_bool(S, false), elis_bool(S, false));
-  int gc = elis_save_gc(S);
-  if (elis_type(S, obj) == ELIS_NUMBER) {
-    for (int i = 0, n = elis_to_number(S, obj); i < n; ++i) {
-      elis_setcar(S, args, elis_number(S, i));
-      elis_apply(S, func, args);
-      elis_restore_gc(S, gc);
-    }
-  } else {
-    while (!elis_nil(S, obj)) {
-      elis_setcar(S, args, elis_next_arg(S, &obj));
-      elis_apply(S, func, args);
-      elis_restore_gc(S, gc);
-    }
-  }
-  return elis_bool(S, false);
 }
 
 static elis_Object *f_type(elis_State *S, elis_Object *args) {
@@ -273,17 +188,77 @@ static elis_Object *f_random(elis_State *S, elis_Object *args) {
   return elis_number(S, n + x * (m - n));
 } 
 
-static inline void draw(SDL_Surface *surface, int x, int y, int s) {
+/*
+ * API: graphics
+ */
+
+static elis_Object *f_clear(elis_State *S, elis_Object *args) {
+  int col = elis_to_number(S, elis_next_arg(S, &args));
+  if (elis_nil(S, args)) {
+    memset(screen, col % num_colors, width * height);
+  } else {
+    Tilemap *map = to_userdata(S, args, &tilemap_handlers);
+    for (int i = 0; i < map->width * map->height; ++i) map->tiles[i] = col;
+  }
+  return elis_bool(S, false);
+}
+
+static elis_Object *f_fill(elis_State *S, elis_Object *args) {
+  int c = elis_to_number(S, elis_next_arg(S, &args));
+  int x = elis_to_number(S, elis_next_arg(S, &args));
+  int y = elis_to_number(S, elis_next_arg(S, &args));
+  switch (elis_type(S, elis_car(S, args))) {
+    case ELIS_NUMBER: {
+      int w = elis_to_number(S, elis_next_arg(S, &args));
+      int h = elis_to_number(S, elis_next_arg(S, &args));
+      c %= num_colors, x += camera.x, y += camera.y;
+      /* do horizontal clip */
+      if (x + w >= clip.x1) w = clip.x1 - x;
+      if (x < clip.x0) w += x - clip.x0, x = clip.x0;
+      /* early exit if completely clipped */
+      if (w > 0) {
+        /* do vertical clip */
+        if (y + h >= clip.y1) h = clip.y1 - y;
+        if (y < clip.y0) h += y - clip.y0, y = clip.y0;
+        /* fill scanlines */
+        for (uint8_t *row = screen + x + y * width; h-- > 0; row += width) memset(row, c, w);
+      }
+      break;
+    }
+    case ELIS_USERDATA: {
+      Tilemap *map = to_userdata(S, elis_next_arg(S, &args), &tilemap_handlers);
+      if (x >= 0 && x < map->width && y >= 0 && y < map->height) map->tiles[x + y * map->width] = c;
+      break;
+    }
+    default: elis_error(S, "expected number or map");
+  }
+  return elis_bool(S, false);
+}
+
+static elis_Object *f_peek(elis_State *S, elis_Object *args) {
+  int x = elis_to_number(S, elis_next_arg(S, &args));
+  int y = elis_to_number(S, elis_next_arg(S, &args));
+  if (!elis_nil(S, args)) {
+    Tilemap *map = to_userdata(S, elis_next_arg(S, &args), &tilemap_handlers);
+    return elis_number(S, x < 0 || x >= map->width || y < 0 || y >= map->height
+                          ? 0
+                          : map->tiles[x + y * width]);
+  }
+  return elis_number(S, x < 0 || x >= width || y < 0 || y >= height ? 0 : screen[x + y * width]);
+}
+
+static void draw(SDL_Surface *surface, int x, int y, int s) {
   int w = surface->w, h = w, sx = 0, sy = (s * w % surface->h + surface->h) % surface->h;
-  /* clip sprite */
+  /* do horizontal clip */
   if (x + w >= clip.x1) w = clip.x1 - x;
   if (x < clip.x0) x -= clip.x0, sx -= x, w += x, x = clip.x0;
   if (w <= 0) return;
+  /* do vertical clip */
   if (y + h >= clip.y1) h = clip.y1 - y;
   if (y < clip.y0) y -= clip.y0, sy -= y, h += y, y = clip.y0;
   /* copy scanlines from sprite to virtual screen */
-  uint8_t *dst = (uint8_t*) screen + x + y * width;
-  uint8_t *src = (uint8_t*) surface->pixels + sx + sy * surface->pitch;
+  uint8_t *dst = (uint8_t *) screen + x + y * width;
+  uint8_t *src = (uint8_t *) surface->pixels + sx + sy * surface->pitch;
   uint8_t key = (uintptr_t) surface->userdata;
   while (h-- > 0) {
     for (int i = 0; i < w; ++i) {
@@ -316,17 +291,9 @@ static elis_Object *f_draw(elis_State *S, elis_Object *args) {
       }
       break;
     }
-    default:
-      elis_error(S, "unexpected userdata type");
+    default: elis_error(S, "expected number, string or map");
   }
   return elis_bool(S, false);
-}
-
-static elis_Object *f_peek(elis_State *S, elis_Object *args) {
-  int x = elis_to_number(S, elis_next_arg(S, &args));
-  int y = elis_to_number(S, elis_next_arg(S, &args));
-  if (x < 0 || x >= width || y < 0 || y >= height) return elis_bool(S, false);
-  return elis_number(S, screen[x + y * width]);
 }
 
 static elis_Object *f_clip(elis_State *S, elis_Object *args) {
@@ -339,64 +306,35 @@ static elis_Object *f_clip(elis_State *S, elis_Object *args) {
     };
     /* get clip rect */
     return elis_list(S, objs, 4);
-  } else {
-    /* start point */
-    clip.x0 = elis_to_number(S, elis_next_arg(S, &args));
-    clip.y0 = elis_to_number(S, elis_next_arg(S, &args));
-    /* width and height */
-    clip.x1 = elis_to_number(S, elis_next_arg(S, &args));
-    clip.y1 = elis_to_number(S, elis_next_arg(S, &args));
-    /* width and height positive? */
-    if (clip.x1 > 0 && clip.y1 > 0) {
-      /* clip rect */
-      clip.x1 += clip.x0; 
-      clip.y1 += clip.y0; 
-      clip.x0 = clip.x0 > 0 ? clip.x0 : 0;
-      clip.y0 = clip.y0 > 0 ? clip.y0 : 0;
-      clip.x1 = clip.x1 > width  ? width  : clip.x1;
-      clip.y1 = clip.y1 > height ? height : clip.y1;
-    } else {
-      /* zero rect */
-      clip.x1 = clip.x0;
-      clip.y1 = clip.y0;
-    }
   }
-  return elis_bool(S, false);
-}
-
-static elis_Object *f_fill(elis_State *S, elis_Object *args) {
-  int col = (int) elis_to_number(S, elis_next_arg(S, &args)) % num_colors;
-  if (elis_nil(S, args)) {
-    memset(screen, col, width * height);
+  /* start point */
+  clip.x0 = elis_to_number(S, elis_next_arg(S, &args));
+  clip.y0 = elis_to_number(S, elis_next_arg(S, &args));
+  /* width and height */
+  clip.x1 = elis_to_number(S, elis_next_arg(S, &args));
+  clip.y1 = elis_to_number(S, elis_next_arg(S, &args));
+  /* width and height positive? */
+  if (clip.x1 > 0 && clip.y1 > 0) {
+    /* clip rect */
+    clip.x1 += clip.x0;
+    clip.y1 += clip.y0;
+    clip.x0 = clip.x0 > 0 ? clip.x0 : 0;
+    clip.y0 = clip.y0 > 0 ? clip.y0 : 0;
+    clip.x1 = clip.x1 > width  ? width  : clip.x1;
+    clip.y1 = clip.y1 > height ? height : clip.y1;
   } else {
-    /* calculate rect */
-    int x = elis_to_number(S, elis_next_arg(S, &args)) + camera.x;
-    int y = elis_to_number(S, elis_next_arg(S, &args)) + camera.y;
-    int w = elis_to_number(S, elis_next_arg(S, &args));
-    int h = elis_to_number(S, elis_next_arg(S, &args));
-    /* do horizontal clip */
-    if (x + w >= clip.x1) w = clip.x1 - x;
-    if (x < clip.x0) w += x - clip.x0, x = clip.x0;
-    /* early exit if completely clipped */
-    if (w > 0) {
-      /* do vertical clip */
-      if (y + h >= clip.y1) h = clip.y1 - y;
-      if (y < clip.y0) h += y - clip.y0, y = clip.y0;
-      /* fill scanlines */
-      uint8_t *row = screen + x + y * width;
-      while (h-- > 0) {
-        memset(row, col, w);
-        row += width;
-      }
-    }
+    /* zero rect */
+    clip.x1 = clip.x0;
+    clip.y1 = clip.y0;
   }
   return elis_bool(S, false);
 }
 
 static elis_Object *f_camera(elis_State *S, elis_Object *args) {
   if (elis_nil(S, args)) return elis_cons(S, elis_number(S, camera.x), elis_number(S, camera.y));
-  camera.x = floor(elis_to_number(S, elis_next_arg(S, &args)));
-  camera.y = floor(elis_to_number(S, elis_next_arg(S, &args)));
+  elis_Object *obj = elis_next_arg(S, &args);
+  camera.x = floor(elis_to_number(S, elis_car(S, obj)));
+  camera.y = floor(elis_to_number(S, elis_cdr(S, obj)));
   return elis_bool(S, false);
 }
 
@@ -404,9 +342,9 @@ static elis_Object *f_width(elis_State *S, elis_Object *args) {
   if (elis_nil(S, args)) return elis_number(S, width);
   elis_Handlers *type = NULL;
   void *udata = elis_to_userdata(S, elis_next_arg(S, &args), &type);
-  if (type == &image_handlers) return elis_number(S, ((SDL_Surface*) udata)->w);
-  if (type == &tilemap_handlers) return elis_number(S, ((Tilemap*) udata)->width);
-  elis_error(S, "unexpected userdata type");
+  if (type == &image_handlers) return elis_number(S, ((SDL_Surface *) udata)->w);
+  if (type == &tilemap_handlers) return elis_number(S, ((Tilemap *) udata)->width);
+  elis_error(S, "expected image or map");
   return NULL;
 }
 
@@ -414,15 +352,74 @@ static elis_Object *f_height(elis_State *S, elis_Object *args) {
   if (elis_nil(S, args)) return elis_number(S, height);
   elis_Handlers *type = NULL;
   void *udata = elis_to_userdata(S, elis_next_arg(S, &args), &type);
-  if (type == &image_handlers) return elis_number(S, ((SDL_Surface*) udata)->h);
-  if (type == &tilemap_handlers) return elis_number(S, ((Tilemap*) udata)->height);
-  elis_error(S, "unexpected userdata type");
+  if (type == &image_handlers) return elis_number(S, ((SDL_Surface *) udata)->h);
+  if (type == &tilemap_handlers) return elis_number(S, ((Tilemap *) udata)->height);
+  elis_error(S, "expected image or map");
   return NULL;
 }
 
+static int parse_int(FILE *fp) {
+  elis_Object *obj = elis_read_fp(S, fp);
+  if (!obj) elis_error(S, "bad map format");
+  return elis_to_number(S, obj);
+}
+
+static elis_Object *f_tilemap(elis_State *S, elis_Object *args) {
+  FILE *fp = NULL;
+  int w, h;
+  /* load map from file or create blank map? */
+  if (elis_nil(S, elis_cdr(S, args))) {
+    fp = fopen(elis_to_string(S, elis_next_arg(S, &args)), "r");
+    if (!fp) elis_error(S, "failed to open map");
+    w = parse_int(fp), h = parse_int(fp);
+  } else {
+    w = elis_to_number(S, elis_next_arg(S, &args)), h = elis_to_number(S, elis_next_arg(S, &args));
+  }
+  /* allocate map */
+  Tilemap *map = calloc(1, sizeof(*map) + w * h * sizeof(int));
+  map->width = w;
+  map->height = h;
+  /* load map contents from file */
+  if (fp) {
+    for (int i = 0, gc = elis_save_gc(S); (args = elis_read_fp(S, fp)) && i < w * h; ++i) {
+      map->tiles[i] = elis_to_number(S, args);
+      elis_restore_gc(S, gc);
+    }
+    fclose(fp);
+  }
+  return elis_userdata(S, map, &tilemap_handlers);
+}
+
+/*
+ * API: audio
+ */
+
+enum { SOUND = 0x0, MUSIC = 0x1, PAUSE = 0x2, ANY = MUSIC | PAUSE | SOUND };
+
+#define GET_TAG(s)    ((uintptr_t) (s) & ANY)
+#define SET_TAG(s, T) ((Sound *) ((uintptr_t) (s) | T))
+#define UNTAG(s, T)   ((Sound *) ((uintptr_t) (s) & ~(uintptr_t) (T)))
+
+#define ANY_SOUND        ((Sound *) ~(uintptr_t) ANY)
+#define SAME_SOUND(a, b) (((uintptr_t) a & ~(uintptr_t) b) <= ANY)
+
 static elis_Object *f_play(elis_State *S, elis_Object *args) {
-  Sound *sound = to_userdata(S, elis_next_arg(S, &args), &sound_handlers);
-  bool music = !elis_nil(S, elis_next_arg(S, &args));
+  Sound *sound = elis_nil(S, args) ? ANY_SOUND
+               : to_userdata(S, elis_next_arg(S, &args), &sound_handlers);
+  /* do some special actions for music source */
+  bool resumed = elis_nil(S, args);
+  if (sound == ANY_SOUND || resumed || !elis_nil(S, elis_next_arg(S, &args))) {
+    /* that music is already playing or paused? */
+    for (int i = 0; i < max_sources; ++i) {
+      if (sources[i].sound && SAME_SOUND(sources[i].sound, sound)) {
+        sources[i].sound = UNTAG(sources[i].sound, PAUSE);
+        resumed = true;
+      }
+    }
+    if (sound == ANY_SOUND || resumed) return elis_bool(S, false);
+    /* mark source as music */
+    sound = SET_TAG(sound, MUSIC);
+  }
   /* time to strech source buffer? */
   if (num_sources == max_sources) {
     int offset = max_sources;
@@ -433,18 +430,6 @@ static elis_Object *f_play(elis_State *S, elis_Object *args) {
   }
   /* find free place for new source */
   while (sources[next_source].sound) next_source = (next_source + 1) % max_sources;
-  /* restart music? */
-  if (music) {
-    for (int i = 0; i < max_sources; ++i) {
-      if (sources[i].sound == sound) {
-        sources[i].position = 0;
-        return elis_bool(S, false);
-      }
-    }
-  } else {
-    /* mark `sound` pointer, source isn't music if `sound` is marked  */
-    sound = (void*) ((uintptr_t) sound | 0x1);
-  }
   /* add new source to queue */
   sources[next_source].sound = sound;
   sources[next_source].position = 0;
@@ -453,63 +438,32 @@ static elis_Object *f_play(elis_State *S, elis_Object *args) {
 }
 
 static elis_Object *f_stop(elis_State *S, elis_Object *args) {
-  /* stop all sounds? */
-  if (elis_nil(S, args)) {
-    memset(sources, 0, sizeof(*sources) * max_sources);
-  } else {
-    Sound *sound = to_userdata(S, elis_next_arg(S, &args), &sound_handlers);
-    /* find and stop music */
-    for (int i = 0; i < max_sources; ++i) {
-      if (sources[i].sound == sound) {
-        sources[i].sound = NULL;
-        break;
-      }
+  Sound *sound = elis_nil(S, args) ? ANY_SOUND
+               : to_userdata(S, elis_next_arg(S, &args), &sound_handlers);
+  /* find and stop music */
+  for (int i = 0; i < max_sources; ++i) {
+    if (sources[i].sound && SAME_SOUND(sources[i].sound, sound)) {
+      sources[i].sound = NULL;
     }
   }
   return elis_bool(S, false);
 }
 
-static elis_Object *f_mute(elis_State *S, elis_Object *args) {
-  SDL_PauseAudioDevice(device, !elis_nil(S, elis_next_arg(S, &args)));
-  return elis_bool(S, false);
-}
-
-static inline int get_int(elis_State *S, FILE *fp) {
-  elis_Object *obj = elis_read_fp(S, fp);
-  if (!obj) elis_error(S, "bad tilemap format");
-  return elis_to_number(S, obj);
-}
-
-static elis_Object *f_tilemap(elis_State *S, elis_Object *args) {
-  FILE *fp = fopen(elis_to_string(S, elis_next_arg(S, &args)), "r");
-  if (!fp) elis_error(S, "failed to open tilemap");
-  int gc = elis_save_gc(S);
-  /* get map width and height */
-  int w = get_int(S, fp);
-  int h = get_int(S, fp);
-  /* allocate tilemap */
-  Tilemap *map = calloc(1, sizeof(*map) + w * h * sizeof(int));
-  map->width = w;
-  map->height = h;
-  /* fill tilemap */
-  for (int i = 0; !elis_nil(S, (args = elis_read_fp(S, fp))) && i < w * h; ++i) {
-    map->tiles[i] = elis_to_number(S, args);
-    elis_restore_gc(S, gc);
-  }
-  fclose(fp);
-  return elis_userdata(S, map, &tilemap_handlers);
-}
-
-static elis_Object *f_tile(elis_State *S, elis_Object *args) {
-  Tilemap *map = to_userdata(S, elis_next_arg(S, &args), &tilemap_handlers);
-  int x = elis_to_number(S, elis_next_arg(S, &args));
-  int y = elis_to_number(S, elis_next_arg(S, &args));
-  if (x >= 0 && x < map->width && y >= 0 && y < map->height) {
-    if (elis_nil(S, args)) return elis_number(S, map->tiles[x + y * map->width]);
-    map->tiles[x + y * map->width] = elis_to_number(S, elis_next_arg(S, &args));
+static elis_Object *f_pause(elis_State *S, elis_Object *args) {
+  Sound *sound = elis_nil(S, args) ? ANY_SOUND
+               : to_userdata(S, elis_next_arg(S, &args), &sound_handlers);
+  /* find and pause music */
+  for (int i = 0; i < max_sources; ++i) {
+    if (sources[i].sound && SAME_SOUND(sources[i].sound, sound)) {
+      sources[i].sound = SET_TAG(sources[i].sound, PAUSE);
+    }
   }
   return elis_bool(S, false);
 }
+
+/*
+ * API: input
+ */
 
 static elis_Object *f_key(elis_State *S, elis_Object *args) {
   SDL_Scancode code = SDL_GetScancodeFromName(elis_to_string(S, elis_next_arg(S, &args)));
@@ -534,27 +488,9 @@ static elis_Object *f_mouse(elis_State *S, elis_Object *args) {
   return elis_bool(S, false);
 }
 
-static elis_Object *f_min(elis_State *S, elis_Object *args) {
-  elis_Number x = elis_to_number(S, elis_next_arg(S, &args));
-  while (!elis_nil(S, args)) {
-    elis_Number y = elis_to_number(S, elis_next_arg(S, &args));
-    x = fmin(x, y);
-  }
-  return elis_number(S, x);
-}
-
-static elis_Object *f_max(elis_State *S, elis_Object *args) {
-  elis_Number x = elis_to_number(S, elis_next_arg(S, &args));
-  while (!elis_nil(S, args)) {
-    elis_Number y = elis_to_number(S, elis_next_arg(S, &args));
-    x = fmax(x, y);
-  }
-  return elis_number(S, x);
-}
-
-static elis_Object *f_sign(elis_State *S, elis_Object *args) {
-  return elis_number(S, elis_to_number(S, elis_next_arg(S, &args)) < 0 ? -1 : 1);
-}
+/*
+ * API: math
+ */
 
 static elis_Object *f_abs(elis_State *S, elis_Object *args) {
   return elis_number(S, fabs(elis_to_number(S, elis_next_arg(S, &args))));
@@ -595,6 +531,10 @@ static elis_Object *f_round(elis_State *S, elis_Object *args) {
 static elis_Object *f_ceil(elis_State *S, elis_Object *args) {
   return elis_number(S, ceil(elis_to_number(S, elis_next_arg(S, &args))));
 }
+
+/*
+ * API: string
+ */
 
 static elis_Object *f_char(elis_State *S, elis_Object *args) {
   char chr = elis_to_number(S, elis_next_arg(S, &args));
@@ -674,37 +614,36 @@ static elis_Object *f_substr(elis_State *S, elis_Object *args) {
   return elis_substring(S, str + start, len);
 }
 
+/*
+ * Complete API list
+ */
+
 static struct { const char *name; elis_CFunction func; } functions[] = {
-  /*        misc        */
-  { "load",    f_load    },
-  { "exit",    f_exit    },
-  { "time",    f_time    },
-  { "each",    f_each    },
-  { "type",    f_type    },
-  { "sort",    f_sort    },
-  { "random",  f_random  },
-  /*      graphics      */
-  { "fill",    f_fill    },
-  { "peek",    f_peek    },
-  { "draw",    f_draw    },
-  { "clip",    f_clip    },
-  { "camera",  f_camera  },
-  { "width",   f_width   },
-  { "height",  f_height  },
-  /*       tilemap      */
+  /*       utils        */
+  { "exit",    f_exit   },
+  { "time",    f_time   },
+  { "load",    f_load   },
+  { "type",    f_type   },
+  { "sort",    f_sort   },
+  { "random",  f_random },
+  /*      graphics     */
+  { "clear",   f_clear  },
+  { "fill",    f_fill   },
+  { "peek",    f_peek   },
+  { "draw",    f_draw   },
+  { "clip",    f_clip   },
+  { "camera",  f_camera },
+  { "width",   f_width  },
+  { "height",  f_height },
   { "tilemap", f_tilemap },
-  { "tile",    f_tile    },
-  /*        audio       */
+  /*       audio        */
   { "play",    f_play    },
   { "stop",    f_stop    },
-  { "mute",    f_mute    },
-  /*        input       */
+  { "pause",   f_pause   },
+  /*       input        */
   { "key",     f_key     },
   { "mouse",   f_mouse   },
   /*        math        */
-  { "min",     f_min     },
-  { "max",     f_max     },
-  { "sign",    f_sign    },
   { "abs",     f_abs     },
   { "sin",     f_sin     },
   { "cos",     f_cos     },
@@ -722,16 +661,49 @@ static struct { const char *name; elis_CFunction func; } functions[] = {
   { "strlen",  f_strlen  },
   { "ascii",   f_ascii   },
   { "substr",  f_substr  },
-  /*     mark of end    */
+  /*         end        */
   { NULL,      NULL      }
 };
+
+/*
+ * Configuration utils
+ */
+
+static const char *config_info;
+
+static void config_error(elis_State *S, const char *msg, elis_Object *calls) {
+  (void) S;
+  (void) calls;
+  fprintf(stderr, "error: %s (after getting `%s`)\n", msg, config_info);
+  exit(EXIT_FAILURE);
+}
+
+static elis_Object *get_config(const char *name) {
+  config_info = name;
+  return elis_eval(S, elis_symbol(S, name));
+}
+
+static elis_Number get_number(const char *name, elis_Number num) {
+  elis_Object *obj = get_config(name);
+  num = elis_nil(S, obj) ? num : elis_to_number(S, obj);
+  if (num <= 0) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%s should be > 0", name);
+    elis_error(S, buf);
+  }
+  return num;
+}
+
+static const char *get_string(const char *name) {
+  elis_Object *obj = get_config(name);
+  return elis_nil(S, obj) ? NULL : elis_to_string(S, obj);
+}
 
 /*
  * Startup
  */
 
 static void cleanup(void) {
-  try_call("quit");
   /* stop audio */
   SDL_CloseAudioDevice(device);
   free(sources);
@@ -743,7 +715,7 @@ static void cleanup(void) {
   free(pixels);
   /* free elis state and SDL */
   elis_free(S);
-  SDL_Quit();  
+  SDL_Quit();
 }
 
 static void audio_callback(void *udata, uint8_t *stream, int len) {
@@ -752,8 +724,8 @@ static void audio_callback(void *udata, uint8_t *stream, int len) {
   memset(stream, 0, len);
   /* mix sources */
   for (int i = 0; i < max_sources; ++i) {
-    if (!sources[i].sound) continue;
-    Sound *sound = (void*) ((uintptr_t) sources[i].sound & ~0x1);
+    if (!sources[i].sound || GET_TAG(sources[i].sound) > MUSIC) continue;
+    Sound *sound = UNTAG(sources[i].sound, ANY);
     uint32_t remain = sound->length - sources[i].position;
     if ((uint32_t) len < remain) {
       /* just mix portion of `len` samples */
@@ -763,7 +735,7 @@ static void audio_callback(void *udata, uint8_t *stream, int len) {
       /* mix remaining samples */
       SDL_MixAudioFormat(stream, sound->buffer + sources[i].position, audio.format, remain, sound->volume);
       /* if source isn't looping -- remove it */
-      if (sound != sources[i].sound) {
+      if (GET_TAG(sources[i].sound) == SOUND) {
         sources[i].sound = NULL;
         --num_sources;
         continue;
@@ -775,10 +747,15 @@ static void audio_callback(void *udata, uint8_t *stream, int len) {
   }
 }
 
+static inline void callback(elis_Object *sym) {
+  if (!elis_nil(S, elis_eval(S, sym))) elis_apply(S, sym, elis_bool(S, false));
+  elis_restore_gc(S, 0);
+}
+
 int main(int argc, char *argv[]) {
   atexit(cleanup);
   srand(time(NULL));
-  
+
   /*
    * Init Elis, register foreign function and load script
    */
@@ -798,64 +775,42 @@ int main(int argc, char *argv[]) {
    * Get configuration
    */
 
-  show_fps = !elis_nil(S, get_any("DEBUG")); 
-  width = clip.x1 = get_number("WIDTH", 128);
+  width  = clip.x1 = get_number("WIDTH",  128);
   height = clip.y1 = get_number("HEIGHT", 128);
-  scale = get_number("SCALE", 1);
-  elis_Number target_fps = get_number("FPS", 30);
-  if (width <= 0 || height <= 0 || scale <= 0 || target_fps <= 0) elis_error(S, "config values can't be < 0");
-  time_step = round(SDL_GetPerformanceFrequency() / target_fps);
-  /* set scaled window viewport */
+  scale  = get_number("SCALE", 3);
   viewport.w = width * scale;
   viewport.h = height * scale;
-  /* keep `WIDTH` and `HEIGHT` defined */
-  elis_set(S, elis_symbol(S, "WIDTH"), elis_number(S, width));
-  elis_set(S, elis_symbol(S, "HEIGHT"), elis_number(S, height));
+  time_step = round(SDL_GetPerformanceFrequency() / get_number("FPS", 30));
 
   /*
    * Init SDL and create window
    */
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) elis_error(S, SDL_GetError());
-  window = SDL_CreateWindow(get_string("TITLE"), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, viewport.w, viewport.h, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+  window = SDL_CreateWindow(get_string("TITLE"),
+                            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                            viewport.w, viewport.h,
+                            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
   if (!window) elis_error(S, SDL_GetError());
-  SDL_Surface *icon = SDL_LoadBMP(get_string("ICON"));
-  if (icon) { 
-    SDL_SetWindowIcon(window, icon);
-    SDL_FreeSurface(icon);
-  }
   SDL_ShowCursor(SDL_DISABLE);
   renderer = SDL_CreateRenderer(window, -1, 0);
   if (!renderer) elis_error(S, SDL_GetError());
-  texture = SDL_CreateTexture(renderer, SDL_GetWindowPixelFormat(window), SDL_TEXTUREACCESS_STREAMING, width, height);
+  texture = SDL_CreateTexture(renderer,
+                              SDL_GetWindowPixelFormat(window), SDL_TEXTUREACCESS_STREAMING,
+                              width, height);
   if (!texture) elis_error(S, SDL_GetError());
   screen = malloc(width * height);
   pixels = malloc(width * height * sizeof(uint32_t));
 
   /*
-   * Init audio
-   */
- 
-  audio.freq = 44100;
-  audio.format = AUDIO_S16;
-  audio.channels = 2;
-  audio.samples = 1024;
-  audio.callback = audio_callback;
-  device = SDL_OpenAudioDevice(NULL, 0, &audio, &audio, SDL_AUDIO_ALLOW_ANY_CHANGE);
-  if (!device) elis_error(S, SDL_GetError());
-  sources = calloc(max_sources, sizeof(*sources)); 
-  SDL_PauseAudioDevice(device, false);
-
-  /*
    * Init colors
    */
  
-  SDL_Palette palette = (SDL_Palette) { .colors = (void*) &colors };
-  for (elis_Object *args = get_any("COLORS"); !elis_nil(S, args); ++num_colors) {
-    elis_Object *rgb = elis_next_arg(S, &args);
-    palette.colors[num_colors].r = elis_to_number(S, elis_next_arg(S, &rgb));
-    palette.colors[num_colors].g = elis_to_number(S, elis_next_arg(S, &rgb));
-    palette.colors[num_colors].b = elis_to_number(S, elis_next_arg(S, &rgb));
+  SDL_Palette palette = (SDL_Palette) { .colors = (void *) &colors };
+  for (elis_Object *args = get_config("COLORS"); !elis_nil(S, args); ++num_colors) {
+    palette.colors[num_colors].r = elis_to_number(S, elis_next_arg(S, &args));
+    palette.colors[num_colors].g = elis_to_number(S, elis_next_arg(S, &args));
+    palette.colors[num_colors].b = elis_to_number(S, elis_next_arg(S, &args));
   }
   palette.ncolors = num_colors;
   if (num_colors == 0) elis_error(S, "screen palette isn't defined");
@@ -865,7 +820,7 @@ int main(int argc, char *argv[]) {
    */
 
   SDL_PixelFormat fmt = (SDL_PixelFormat) { .palette = &palette, .BitsPerPixel = 8, .BytesPerPixel = 1 };
-  for (elis_Object *args = get_any("IMAGES"); !elis_nil(S, args); elis_restore_gc(S, 0)) {
+  for (elis_Object *args = get_config("IMAGES"); !elis_nil(S, args); elis_restore_gc(S, 0)) {
     elis_Object *sym = elis_next_arg(S, &args);
     /* load source image */
     const char *filename = elis_to_string(S, elis_next_arg(S, &args));
@@ -873,13 +828,13 @@ int main(int argc, char *argv[]) {
     if (!bmp) elis_error(S, SDL_GetError());
     if (bmp->h % bmp->w) {
       config_info = filename;
-      elis_error(S, "incorrect image dimensions");
+      elis_error(S, "incorrect image dimensions, height should be multiple of width");
     }
     /* convert image to palette format and set colorkey */
     SDL_Surface *surface = SDL_ConvertSurface(bmp, &fmt, 0);
     if (!surface) elis_error(S, SDL_GetError());
     SDL_FreeSurface(bmp);
-    surface->userdata = (void*) (uintptr_t) elis_to_number(S, elis_next_arg(S, &args));
+    surface->userdata = (void *) (uintptr_t) elis_to_number(S, elis_next_arg(S, &args));
     /* create image object */
     elis_set(S, sym, elis_userdata(S, surface, &image_handlers));
   }
@@ -894,15 +849,31 @@ int main(int argc, char *argv[]) {
   }
 
   /*
+   * Init audio
+   */
+
+  audio.freq = 44100;
+  audio.format = AUDIO_S16;
+  audio.channels = 2;
+  audio.samples = 1024;
+  audio.callback = audio_callback;
+  device = SDL_OpenAudioDevice(NULL, 0, &audio, &audio, SDL_AUDIO_ALLOW_ANY_CHANGE);
+  if (!device) elis_error(S, SDL_GetError());
+  sources = calloc(1, max_sources * sizeof(*sources));
+  SDL_PauseAudioDevice(device, false);
+
+  /*
    * Load sounds
    */
 
-  for (elis_Object *args = get_any("SOUNDS"); !elis_nil(S, args); elis_restore_gc(S, 0)) {
+  for (elis_Object *args = get_config("SOUNDS"); !elis_nil(S, args); elis_restore_gc(S, 0)) {
     elis_Object *sym = elis_next_arg(S, &args); 
     /* load audio */
     SDL_AudioSpec spec;
     Sound *sound = malloc(sizeof(*sound));
-    if (!SDL_LoadWAV(elis_to_string(S, elis_next_arg(S, &args)), &spec, &sound->buffer, &sound->length)) elis_error(S, SDL_GetError());
+    if (!SDL_LoadWAV(elis_to_string(S, elis_next_arg(S, &args)), &spec, &sound->buffer, &sound->length)) {
+      elis_error(S, SDL_GetError());
+    }
     /* audio format matches to system format? */
     SDL_AudioCVT cvt;
     int ret = SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, audio.format, audio.channels, audio.freq); 
@@ -925,16 +896,22 @@ int main(int argc, char *argv[]) {
   }
   
   /*
+   * Erase config variables
+   */
+
+  const char *config[] = { "TITLE", "WIDTH", "HEIGHT", "SCALE", "FPS", "COLORS", "IMAGES", "SOUNDS" };
+  for (int i = 0; i < 8; ++i) elis_set(S, elis_symbol(S, config[i]), elis_bool(S, false));
+
+  /*
    * Game loop
    */
 
   elis_on_error(S, NULL);
-  /* call `init` handler if possible */
-  try_call("init");
-  /* get `step` handler */
-  elis_Object *step = get_handler("step");
+  /* call `init` handler */
+  callback(elis_symbol(S, "init"));
   /* start main loop */
   uint64_t prev_time = SDL_GetPerformanceCounter();
+  elis_Object *step = elis_symbol(S, "step");
   for (;;) {
     /* process events */
     wheel = 0;
@@ -961,25 +938,23 @@ int main(int argc, char *argv[]) {
             SDL_RenderClear(renderer);
           }
           break;
-        }
+      }
     }
     /* call `step` handler */
-    call(step);
+    callback(step);
     /* draw scaled virtual framebuffer on window (how make it faster?) */
     for (int i = 0; i < width * height; ++i) pixels[i] = colors[screen[i]];
-    SDL_UpdateTexture(texture, NULL, pixels, sizeof(uint32_t) * width);
+    SDL_UpdateTexture(texture, NULL, pixels, width * sizeof(uint32_t));
     SDL_RenderCopy(renderer, texture, NULL, &viewport);
     SDL_RenderPresent(renderer);
     /* clip framerate */
-    uint64_t cur_time = SDL_GetPerformanceCounter(), end_time = prev_time + time_step, start_time = prev_time;
+    uint64_t cur_time = SDL_GetPerformanceCounter(), end_time = prev_time + time_step;
     if (end_time > cur_time) {
       SDL_Delay((end_time - cur_time) * 1000 / SDL_GetPerformanceFrequency());
       prev_time += time_step;
     } else {
       prev_time = cur_time;
     }
-    /* print fps, if required */
-    if (show_fps) fprintf(stderr, "\r[%" PRIu64 " FPS] ", SDL_GetPerformanceFrequency() / (SDL_GetPerformanceCounter() - start_time));
   }
 
   return EXIT_SUCCESS;
