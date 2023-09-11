@@ -32,8 +32,8 @@
 ))
 
 (= SOUNDS '(
-  music.wav   "sounds/music.wav"   0.5
-  hurt.wav    "sounds/hurt.wav"    1.0
-  collect.wav "sounds/collect.wav" 0.65
-  jump.wav    "sounds/jump.wav"    0.5
+  music.wav   "sounds/music.wav"   0.4
+  hurt.wav    "sounds/hurt.wav"    0.4
+  collect.wav "sounds/collect.wav" 0.35
+  jump.wav    "sounds/jump.wav"    0.15
 ))
