@@ -2,17 +2,16 @@
   :spr nil
   
   :step (func ()
-    (draw (super':get-x) (super':get-y)
-      pickups.bmp :spr
-    )
-    (if (super':step) (do
+    (let (x . y) (super':get-pos))
+    (draw x y pickups.bmp :spr)
+    (when (super':step)
       (play collect.wav nil)
       (super':kill)
-    ))
+    )
   )
 
-  init (func (x y)
-    (= super (Pickup self x y 4)
+  init (func (pos)
+    (= super (Pickup self pos 4)
        :spr (floor (random 4))
     )
   )

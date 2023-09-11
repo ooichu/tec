@@ -4,16 +4,15 @@
   :step (func ()
     ; move
     (if (super':smack?) (= :dir (* :dir -1)))
-    (super':move (* :dir 0.1) (* GRAVITY -1))
+    (super':move (cons (* :dir 0.1) (* (cdr GRAVITY) -1)))
     ; update
     (super':step)
     ; draw
-    (draw (super':get-x) (super':get-y) ufo.bmp
-      (% (* 4 (time)) 3)
-    )
+    (let (x . y) (super':get-pos))
+    (draw x y ufo.bmp (% (* 4 (time)) 3))
   )
  
-  init (func (x y)
-    (= super (Enemy self x y 8))
+  init (func (pos)
+    (= super (Enemy self pos 8))
   )
 ))

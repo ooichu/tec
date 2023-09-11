@@ -1,5 +1,4 @@
 (= TITLE  "Jumper"
-   ICON   "images/icon.bmp"
    FPS    50
 )
 

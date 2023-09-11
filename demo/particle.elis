@@ -1,13 +1,10 @@
 (= Particle (class
-  :ax nil  ; x acceleration
-  :ay nil  ; y acceleration
+  :acc nil
   :dur nil ; particle duration
 
   :step (func ()
-    (super':move :ax :ay)
-    (= :ax (* :ax FRICTION)
-       :ay (* :ay FRICTION)
-    )
+    (super':move :acc)
+    (= :acc (2* :acc FRICTION))
     (super':step)
     (if (<= :dur 0)
         (super':kill)
@@ -15,10 +12,9 @@
     )
   )
 
-  init (func (self x y a dur)
-    (= super (Actor x y 0 t)
-       :ax (* 1 (cos a))
-       :ay (* 1 (sin a))
+  init (func (self pos a dur)
+    (= super (Actor pos 0 t)
+       :acc (cons (* 1 (cos a)) (* 1 (sin a)))
        :dur (+ dur (random (/ dur 2)))
        particles (cons self particles)
     )

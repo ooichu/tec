@@ -3,67 +3,59 @@
   :dir 6
 
   :step (func ()
-    (if (key "left")  (do (= :dir 6) (super':move -0.15 0))
-        (key "right") (do (= :dir 0) (super':move +0.15 0))
+    ; input: left-right movement
+    (if (key "left")  (do (= :dir 6) (super':move '(-0.15 . 0)))
+        (key "right") (do (= :dir 0) (super':move '(+0.15 . 0)))
     )
-    
-    (if (and (key "up") (< 0 :jump)) (do
-          (if (is :jump 6) (play jump.wav nil))
-          (super':move 0 -1)
+    ; input: jumping
+    (if (and (key "up") (< 0 :jump))
+        (do
+          (when (is :jump 6) (play jump.wav nil))
+          (super':move '(0 . -1.025))
           (= :jump (- :jump 1))
         )
-        (super':on-ground?) (= :jump 6)
+        (super':on-ground?)
+        (= :jump 6)
     )
-
+    ; update physics
     (super':step)
-
-    (let x (super':get-x)
-         y (super':get-y)
-    )
-
+    ; update camera
+    (let (x . y) (super':get-pos))
     (camera (cons
       (- 64 (clamp (- x 4) 64 (- (* 128 8) 64)))
       (- 64 (clamp (- y 4) 64 (- (*  24 8) 64)))
     ))
-
-    (if (super':on-ground?)
-      (do
-        (let dx (super':get-dx)
-             frame (* 5 (time))
-        )
-        (if (< (abs dx) 0.3)
-          ; idle animation
-          (draw x y player.bmp :dir)
-          ; walk animation
-          (draw x y player.bmp (+ 2 :dir (% frame 4)))
-        )
+    ; draw sprite
+    (draw x y player.bmp (+ :dir
+      (if (not (super':on-ground?)) 1             ; on fly
+          (< (abs (car (super':get-vel))) 0.3) 0  ; staying
+          (+ 2 (% (* 5 (time)) 4))                ; walking
       )
-      (draw x y player.bmp (+ 1 :dir))
-    )
+    ))
   )
 
   :kill (func ()
     (= player nil)
     (play hurt.wav nil)
     (stop music.wav)
-    (make-puffts (super':get-x) (super':get-y) 9)
+    (make-puffts (super':get-pos) 9)
   )
  
   :smashed? (func (e)
-    (let x0 (super':get-x) y0 (super':get-y) s0 (super':get-size)
-         x1 (e':get-x)     y1 (e':get-y)     s1 (e':get-size)
-    )
-    (if (collide? x0 y0 s0 x1 y1 s1)
-      (if (<= (* s0 0.65) (- y1 y0))
-        (do (e':kill) (super':bounce))
-        (:kill)
+    (when (super':collide? e)
+      ; handle jump n' smash
+      (if (<= (* (super':get-size) 0.60)
+              (cdr (2- (e':get-pos) (super':get-pos)))
+          )
+          (do (e':kill) (super':bounce))
+          (:kill)
       )
     )
   )
  
-  init (func (x y)
-    (= super (Actor x y 8)
+  init (func (pos)
+    (= super (Actor pos 8)
        player self
     )
   )
-)) 
+))

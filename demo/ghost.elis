@@ -2,23 +2,19 @@
   :dir 0
 
   :step (func ()
-    (if player (do
-      (let dist (distance player super))
-      (if (and (< 8 dist) (< dist 64))
-        (super':move
-          (/ (- (player':get-x) (super':get-x)) dist 10)
-          (/ (- (player':get-y) (super':get-y)) dist 10)
-        )
+    (when player
+      (let dist (dist (player':get-pos) (super':get-pos)))
+      (when (and (< 8 dist) (< dist 64))
+        (super':move (2/ (2- (player':get-pos) (super':get-pos)) (* dist 10)))
       )
-      (= :dir (if (< (player':get-x) (super':get-x)) 2 0))
-    ))
-    (super':step)
-    (draw (super':get-x) (super':get-y) ghost.bmp
-      (+ :dir (% (* 4 (time)) 2))
+      (= :dir (if (< (car (player':get-pos)) (car (super':get-pos))) 2 0))
     )
+    (super':step)
+    (let (x . y) (super':get-pos))
+    (draw x y ghost.bmp (+ :dir (% (* 4 (time)) 2)))
   )
 
-  init (func (x y)
-    (= super (Enemy self x y 8 t))
+  init (func (pos)
+    (= super (Enemy self pos 8 t))
   )
 ))

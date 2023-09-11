@@ -1,3 +1,7 @@
+;
+; Math
+;
+
 (= mod (func (x y)
   (= x (% x y))
   (if (< x 0) (+ y x) x)
@@ -7,7 +11,49 @@
   (if (< v a) a (< b v) b v)
 ))
 
-(= square (func (x) (* x x)))
+(= sqr (func (x)
+  (* x x)
+))
+
+;
+; Vector
+;
+
+(= 2+ (func (a b)
+  (cons (+ (car a) (car b))
+        (+ (cdr a) (cdr b))
+  )
+))
+
+(= 2- (func (a b)
+  (cons (- (car a) (car b))
+        (- (cdr a) (cdr b))
+  )
+))
+
+(= 2* (func (v n)
+  (cons (* (car v) n)
+        (* (cdr v) n)
+  )
+))
+
+(= 2/ (func (v n)
+  (cons (/ (car v) n)
+        (/ (cdr v) n)
+  )
+))
+
+(= len (func (v)
+  (sqrt (+ (sqr (car v)) (sqr (cdr v))))
+))
+
+(= dist (func (a b)
+  (len (2- a b))
+))
+
+;
+; Class
+;
 
 (= class (macro body
   (list 'func 'args
@@ -27,9 +73,67 @@
   )
 ))
 
+(= getter (macro (sym)
+  (list 'func () sym)
+))
+
+(= setter (macro (sym)
+  (let tmp (gensym))
+  (list 'func (list tmp) (list '= sym tmp))
+))
+
+;
+; Conditionals
+;
+
+(= when (macro (cond . body)
+  (list 'if cond (cons 'do body))
+))
+
+(= unless (macro (cond . body)
+  (list 'if cond nil (cons 'do body))
+))
+
+;
+; Misc
+;
+
+(= push (macro (sym val)
+  (list '= sym (list 'cons val sym))
+))
+
+(= join (func (a b)
+  (let tmp a)
+  (while (cdr tmp) (= tmp (cdr tmp)))
+  (setcdr tmp b)
+  a
+))
+
+(= set (macro args
+  (list 'apply '= (cons 'list args))
+))
+
+;
+; Loops
+;
+
 (= each (func (lst func)
   (while lst
     (func (car lst))
     (= lst (cdr lst))
+  )
+))
+
+(= foreach (macro (sym lst . body)
+  (list 'each lst (cons 'func (cons (list sym) body)))
+))
+
+(= for (macro (sym init cond step . body)
+  (list 'do
+    (list 'let sym init)
+    (list 'while cond
+      (cons 'do body)
+      step
+    )
   )
 ))

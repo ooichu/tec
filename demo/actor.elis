@@ -1,109 +1,85 @@
-(= GRAVITY  0.2
+(= GRAVITY  '(0 . 0.2)
    FRICTION 0.9
 )
 
-(= collide? (func (x0 y0 s0 x1 y1 s1)
-  (and
-    (< x1 (+ x0 s0)) (< x0 (+ x1 s1))
-    (< y1 (+ y0 s0)) (< y0 (+ y1 s1))
-  )
-))
-
-(= distance (func (a b)
-  (let x0 (+ (a':get-x) (/ (a':get-size) 2))
-       y0 (+ (a':get-y) (/ (a':get-size) 2))
-       x1 (+ (b':get-x) (/ (b':get-size) 2))
-       y1 (+ (b':get-y) (/ (b':get-size) 2))
-  )
-  (sqrt (+ (square (- x1 x0)) (square (- y1 y0))))
-))
-
 (= Actor (class
-  :float nil  
+  :pos nil
+  :get-pos (getter :pos)
 
-  :x nil
-  :get-x (func () :x)
+  :vel (cons 0 0)
+  :get-vel (getter :vel)
   
-  :y nil
-  :get-y (func () :y)
+  :move (func (acc)
+    (= :vel (2+ :vel acc))
+  )
 
   :size nil
-  :get-size (func () :size)
+  :get-size (getter :size)
 
-  :dx 0
-  :get-dx (func () :dx)
-
-  :dy 0
-  :get-dy (func () :dy)
-
-  :move (func (x y)
-    (= :dx (+ :dx x)
-       :dy (+ :dy y)
+  :collide? (func (other)
+    (< (dist :pos (other':get-pos))
+       (/ (+ :size (other':get-size)) 2)
     )
   )
-  
+
   :on-ground nil
-  :on-ground? (func () :on-ground)
+  :on-ground? (getter :on-ground)
 
   :smack nil
-  :smack? (func () :smack)
-  
+  :smack? (getter :smack)
+
+  :float nil  
   :bounced nil
+
   :step (func ()
-    (= :bounced nil)
-    (if (not :float) (= :dy (+ :dy GRAVITY)))
-    ; update velocity
-    (= :dx (* :dx FRICTION)
-       :dy (* :dy FRICTION)
+    (= :bounced nil 
+       :vel (2* (if :float :vel (2+ :vel GRAVITY)) FRICTION)
     )
     ; update collision with tilemap
-    (if (not :float) (do
-      ; build AABB
-      (let x1 (+ :x (- :size 1))
-           y1 (+ :y (- :size 1))
-           x0 (+ :x 1)
-           y0 (+ :y 1)
+    (unless :float
+      (let a (2+ :pos '(1 . 1))
+           b (2+ :pos (cons (- :size 1) (- :size 1)))
+           (new-x . new-y) (2+ :vel
+             (cons (car (if (< (car :vel) 0) a b))
+                   (cdr (if (< (cdr :vel) 0) a b))
+             )
+           )
       )
       ; move on x-axis
-      (= :smack (or
-        (solid? (+ :dx (if (< :dx 0) x0 x1)) y0)
-        (solid? (+ :dx (if (< :dx 0) x0 x1)) y1)
-      ))
-      (if :smack (= :dx (* :dx -0.5)))
-      ; move on y-axis
-      (= :on-ground (or
-        (solid? x0 (+ :dy (if (< :dy 0) y0 y1)))
-        (solid? x1 (+ :dy (if (< :dy 0) y0 y1)))
-      ))
-      (if :on-ground (do
-        (if (< :dy 0) (= :on-ground nil))
-        (= :dy 0) 
-      ))
-    ))
-    ; update position
-    (= :x (+ :x :dx)
-       :y (+ :y :dy)
+      (= :smack     (or (solid? new-x (cdr a)) (solid? new-x (cdr b)))
+         :on-ground (or (solid? (car a) new-y) (solid? (car b) new-y))
+      )
+      ; handle horizontal collision (wall)
+      (when :smack
+        (setcar :vel (* (car :vel) -0.5))
+      )
+      ; handle vertical collision (floor)
+      (when :on-ground
+        (= :on-ground (<= 0 (cdr :vel)))
+        (setcdr :vel 0) 
+      )
     )
+    ; update position
+    (= :pos (2+ :pos :vel))
   )
 
-  init (func (x y size float)
-    (= :x x
-       :y y
+  init (func (pos size float)
+    (= :pos pos
        :size size
        :float float
     )
   )
 
   :bounce (func ()
-    (if (not :bounced) (do
+    (unless :bounced
       (= :jump 0
          :bounced t
-         :dy (* :dy -1.1)
       )
-    ))
+      (setcdr :vel (* (cdr :vel) -1.1))
+    )
   )
 
   :alive t
-  :kill (func (alive) (= :alive alive))
-  :alive? (func () :alive)
+  :kill (setter :alive)
+  :alive? (getter :alive)
 ))

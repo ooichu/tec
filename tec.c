@@ -147,7 +147,7 @@ static int compare(const void *a, const void *b) {
 }
 
 static elis_Object *f_sort(elis_State *S, elis_Object *args) {
-  if (sort_args-- == sort_stack) elis_error(S, "too deep recursion on sorting");
+  if (sort_args-- == sort_stack) elis_error(S, "too many nested sorting calls");
   /* copy list to plain array */
   size_t cap = 64, len = 0;
   elis_Object **arr = malloc(cap * sizeof(*arr)), *lst = elis_next_arg(S, &args);
@@ -331,11 +331,13 @@ static elis_Object *f_clip(elis_State *S, elis_Object *args) {
 }
 
 static elis_Object *f_camera(elis_State *S, elis_Object *args) {
-  if (elis_nil(S, args)) return elis_cons(S, elis_number(S, camera.x), elis_number(S, camera.y));
-  elis_Object *obj = elis_next_arg(S, &args);
-  camera.x = floor(elis_to_number(S, elis_car(S, obj)));
-  camera.y = floor(elis_to_number(S, elis_cdr(S, obj)));
-  return elis_bool(S, false);
+  elis_Object *res = elis_cons(S, elis_number(S, camera.x), elis_number(S, camera.y));
+  if (!elis_nil(S, args)) {
+    elis_Object *obj = elis_next_arg(S, &args);
+    camera.x = floor(elis_to_number(S, elis_car(S, obj)));
+    camera.y = floor(elis_to_number(S, elis_cdr(S, obj)));
+  }
+  return res;
 }
 
 static elis_Object *f_width(elis_State *S, elis_Object *args) {
