@@ -297,37 +297,36 @@ static elis_Object *f_draw(elis_State *S, elis_Object *args) {
 }
 
 static elis_Object *f_clip(elis_State *S, elis_Object *args) {
-  if (elis_nil(S, args)) {
-    elis_Object *objs[] = {
-      elis_number(S, clip.x0),
-      elis_number(S, clip.y0),
-      elis_number(S, clip.x1 - clip.x0),
-      elis_number(S, clip.y1 - clip.y0)
-    };
-    /* get clip rect */
-    return elis_list(S, objs, 4);
+  elis_Object *res = elis_list(S, (elis_Object *[]) {
+    elis_number(S, clip.x0),
+    elis_number(S, clip.y0),
+    elis_number(S, clip.x1 - clip.x0),
+    elis_number(S, clip.y1 - clip.y0)
+  }, 4);
+  /* need to clip? */
+  if (!elis_nil(S, args)) {
+    /* start point */
+    clip.x0 = elis_to_number(S, elis_next_arg(S, &args));
+    clip.y0 = elis_to_number(S, elis_next_arg(S, &args));
+    /* width and height */
+    clip.x1 = elis_to_number(S, elis_next_arg(S, &args));
+    clip.y1 = elis_to_number(S, elis_next_arg(S, &args));
+    /* width and height positive? */
+    if (clip.x1 > 0 && clip.y1 > 0) {
+      /* clip rect */
+      clip.x1 += clip.x0;
+      clip.y1 += clip.y0;
+      clip.x0 = clip.x0 > 0 ? clip.x0 : 0;
+      clip.y0 = clip.y0 > 0 ? clip.y0 : 0;
+      clip.x1 = clip.x1 > width  ? width  : clip.x1;
+      clip.y1 = clip.y1 > height ? height : clip.y1;
+    } else {
+      /* zero rect */
+      clip.x1 = clip.x0;
+      clip.y1 = clip.y0;
+    }
   }
-  /* start point */
-  clip.x0 = elis_to_number(S, elis_next_arg(S, &args));
-  clip.y0 = elis_to_number(S, elis_next_arg(S, &args));
-  /* width and height */
-  clip.x1 = elis_to_number(S, elis_next_arg(S, &args));
-  clip.y1 = elis_to_number(S, elis_next_arg(S, &args));
-  /* width and height positive? */
-  if (clip.x1 > 0 && clip.y1 > 0) {
-    /* clip rect */
-    clip.x1 += clip.x0;
-    clip.y1 += clip.y0;
-    clip.x0 = clip.x0 > 0 ? clip.x0 : 0;
-    clip.y0 = clip.y0 > 0 ? clip.y0 : 0;
-    clip.x1 = clip.x1 > width  ? width  : clip.x1;
-    clip.y1 = clip.y1 > height ? height : clip.y1;
-  } else {
-    /* zero rect */
-    clip.x1 = clip.x0;
-    clip.y1 = clip.y0;
-  }
-  return elis_bool(S, false);
+  return res;
 }
 
 static elis_Object *f_camera(elis_State *S, elis_Object *args) {
